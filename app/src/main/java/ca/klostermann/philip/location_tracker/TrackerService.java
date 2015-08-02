@@ -21,8 +21,6 @@ import android.app.Notification;
 import android.app.NotificationManager;
 import android.app.PendingIntent;
 import android.app.Service;
-import android.location.LocationManager;
-import android.location.LocationListener;
 import android.location.Location;
 import android.content.Context;
 import android.content.Intent;
@@ -38,16 +36,20 @@ import android.os.RemoteException;
 import android.os.SystemClock;
 import android.util.Log;
 
+import com.google.android.gms.common.ConnectionResult;
+import com.google.android.gms.common.GooglePlayServicesUtil;
+import com.google.android.gms.common.api.GoogleApiClient;
+import com.google.android.gms.location.LocationServices;
+
 import org.apache.http.client.methods.HttpPost;
 import org.apache.http.client.entity.UrlEncodedFormEntity;
-import org.apache.http.client.ClientProtocolException;
 import org.apache.http.HttpResponse;
 import org.apache.http.NameValuePair;
 import org.apache.http.message.BasicNameValuePair;
 import org.json.*;
 
 public class TrackerService extends Service {
-	private static final String TAG = "TripTracker/Service";
+	private static final String TAG = "LocationTracker/Service";
 
 	private final String updatesCache = "updates.cache";
 
@@ -58,11 +60,8 @@ public class TrackerService extends Service {
 	private static boolean isRunning = false;
 
 	private String freqString;
-	private int freqSeconds;
 	private String endpoint;
 
-	private final int MAX_RING_SIZE = 15;
-	
 	private LocationListener locationListener;
 	private AlarmManager alarmManager;
 	private PendingIntent pendingAlarm;
@@ -70,6 +69,7 @@ public class TrackerService extends Service {
 
 	private AsyncTask httpPoster;
 
+	GoogleApiClient mGoogleApiClient;
 	ArrayList<LogMessage> mLogRing = new ArrayList<LogMessage>();
 	ArrayList<Messenger> mClients = new ArrayList<Messenger>();
 	ArrayList<List> mUpdates = new ArrayList<List>();
@@ -86,14 +86,50 @@ public class TrackerService extends Service {
 		return mMessenger.getBinder();
 	}
 
+	class LocationListener implements GoogleApiClient.ConnectionCallbacks, GoogleApiClient.OnConnectionFailedListener {
+		@Override
+		public void onConnected(Bundle connectionHint) {
+			Location location = LocationServices.FusedLocationApi.getLastLocation(
+					mGoogleApiClient);
+			if (location != null) {
+				Log.d(TAG, "Location acquired.");
+				Log.d(TAG, "Latitude: " + String.valueOf(location.getLatitude()));
+				Log.d(TAG, "Longitude: " + String.valueOf(location.getLongitude()));
+				sendLocation(location);
+			} else {
+				Log.e(TAG, "location is null");
+			}
+			mGoogleApiClient.disconnect();
+		}
+
+		@Override
+		public void onConnectionSuspended(int i) {
+			Log.e(TAG, "Location connection suspended " + i);
+			logText("No Location found");
+		}
+
+		@Override
+		public void onConnectionFailed(ConnectionResult connectionResult) {
+			Log.e(TAG, "Location Connection failed" + connectionResult);
+			logText("No Location found");
+		}
+	};
+
 	@Override
 	public void onCreate() {
 		super.onCreate();
 
+		// Check whether Google Play Services is installed
+		int resp = GooglePlayServicesUtil.isGooglePlayServicesAvailable(this);
+		if(resp != ConnectionResult.SUCCESS){
+			logText("Google Play Services not found. Please install to use this app.");
+			stopSelf();
+		}
+
 		TrackerService.service = this;
 
 		endpoint = Prefs.getEndpoint(this);
-		freqSeconds = 0;
+		int freqSeconds = 0;
 		freqString = null;
 
 		freqString = Prefs.getUpdateFreq(this);
@@ -123,6 +159,10 @@ public class TrackerService extends Service {
 			stopSelf();
 		}
 
+		/* findAndSendLocation() will callback to this */
+		locationListener = new LocationListener();
+		buildGoogleApiClient();
+
 		readCache();
 
 		showNotification();
@@ -133,23 +173,6 @@ public class TrackerService extends Service {
 		 * but as soon as the client connects we send the log buffer anyway */
 		logText("service started, requesting location update every " +
 			freqString);
-
-		/* findAndSendLocation() will callback to this */
-		locationListener = new LocationListener() {
-			public void onLocationChanged(Location location) {
-				sendLocation(location);
-			}
-
-			public void onStatusChanged(String provider, int status,
-			Bundle extras) {
-			}
-
-			public void onProviderEnabled(String provider) {
-			}
-
-			public void onProviderDisabled(String provider) {
-			}
-		};
 
 		/* we don't need to be exact in our frequency, try to conserve at least
 		 * a little battery */
@@ -167,14 +190,6 @@ public class TrackerService extends Service {
 		if (httpPoster != null)
 			httpPoster.cancel(true);
 
-		try {
-			LocationManager locationManager = (LocationManager)
-				this.getSystemService(Context.LOCATION_SERVICE);
-			locationManager.removeUpdates(locationListener);
-		}
-		catch (Exception e) {
-		}
-
 		/* kill persistent notification */
 		nm.cancelAll();
 
@@ -189,13 +204,21 @@ public class TrackerService extends Service {
 		return START_STICKY;
 	}
 
+	public synchronized void buildGoogleApiClient() {
+		mGoogleApiClient = new GoogleApiClient.Builder(this)
+				.addConnectionCallbacks(locationListener)
+				.addOnConnectionFailedListener(locationListener)
+				.addApi(LocationServices.API)
+				.build();
+	}
+
 	/* must be done inside of updateLock */
 	public void cacheUpdates() {
 		OutputStreamWriter cacheStream = null;
 
 		try {
 			FileOutputStream cacheFile = TrackerService.this.openFileOutput(
-				updatesCache, Activity.MODE_PRIVATE);
+					updatesCache, Activity.MODE_PRIVATE);
 			cacheStream = new OutputStreamWriter(cacheFile, "UTF-8");
 
 			/* would be nice to just serialize mUpdates but it's not
@@ -245,7 +268,7 @@ public class TrackerService extends Service {
 
 		try {
 			FileInputStream cacheFile = TrackerService.this.openFileInput(
-				updatesCache);
+					updatesCache);
 			StringBuffer buf = new StringBuffer("");
 			byte[] bbuf = new byte[1024];
 			int len;
@@ -308,18 +331,16 @@ public class TrackerService extends Service {
 
 			/* we don't need the screen on */
 			wakeLock = pm.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK,
-				"triptracker");
+				"locationtracker");
 			wakeLock.setReferenceCounted(true);
 		}
 
 		if (!wakeLock.isHeld())
 			wakeLock.acquire();
 
-		LocationManager locationManager = (LocationManager)
-			this.getSystemService(Context.LOCATION_SERVICE);
-
-		locationManager.requestSingleUpdate(LocationManager.GPS_PROVIDER,
-			locationListener, null);
+		if(!mGoogleApiClient.isConnected()) {
+			mGoogleApiClient.connect();
+		}
 	}
 
 	public static boolean isRunning() {
@@ -329,10 +350,10 @@ public class TrackerService extends Service {
 	private void showNotification() {
 		nm = (NotificationManager)getSystemService(NOTIFICATION_SERVICE);
 		notification = new Notification(R.mipmap.service_icon,
-			"Trip Tracker Started", System.currentTimeMillis());
+			"Location Tracker Started", System.currentTimeMillis());
 		PendingIntent contentIntent = PendingIntent.getActivity(this, 0,
 			new Intent(this, MainActivity.class), 0);
-		notification.setLatestEventInfo(this, "Trip Tracker",
+		notification.setLatestEventInfo(this, "Location Tracker",
 			"Sending location every " + freqString, contentIntent);
 		notification.flags = Notification.FLAG_ONGOING_EVENT;
 		nm.notify(1, notification);
@@ -342,7 +363,7 @@ public class TrackerService extends Service {
 		if (nm != null) {
 			PendingIntent contentIntent = PendingIntent.getActivity(this, 0,
 				new Intent(this, MainActivity.class), 0);
-			notification.setLatestEventInfo(this, "Trip Tracker", text,
+			notification.setLatestEventInfo(this, "Location Tracker", text,
 				contentIntent);
 			notification.when = System.currentTimeMillis();
 			nm.notify(1, notification);
@@ -352,6 +373,7 @@ public class TrackerService extends Service {
 	public void logText(String log) {
 		LogMessage lm = new LogMessage(new Date(), log);
 		mLogRing.add(lm);
+		int MAX_RING_SIZE = 15;
 		if (mLogRing.size() > MAX_RING_SIZE)
 			mLogRing.remove(0);
 	
@@ -400,13 +422,13 @@ public class TrackerService extends Service {
 	private void sendLocation(Location location) {
 		List<NameValuePair> pairs = new ArrayList<NameValuePair>(2);
 		pairs.add(new BasicNameValuePair("time",
-			String.valueOf(location.getTime())));
+				String.valueOf(location.getTime())));
 		pairs.add(new BasicNameValuePair("latitude",
-			String.valueOf(location.getLatitude())));
+				String.valueOf(location.getLatitude())));
 		pairs.add(new BasicNameValuePair("longitude",
-			String.valueOf(location.getLongitude())));
+				String.valueOf(location.getLongitude())));
 		pairs.add(new BasicNameValuePair("speed",
-			String.valueOf(location.getSpeed())));
+				String.valueOf(location.getSpeed())));
 
 		/* push these pairs onto the queue, and only run the poster if another
 		 * one isn't running already (if it is, it will keep running through
@@ -418,13 +440,13 @@ public class TrackerService extends Service {
 		updateLock.writeLock().unlock();
 
 		logText("location " +
-			(new DecimalFormat("#.######").format(location.getLatitude())) +
-			", " +
-			(new DecimalFormat("#.######").format(location.getLongitude())) +
-			(size <= 1 ? "" : " (" + size + " queued)"));
+				(new DecimalFormat("#.######").format(location.getLatitude())) +
+				", " +
+				(new DecimalFormat("#.######").format(location.getLongitude())) +
+				(size <= 1 ? "" : " (" + size + " queued)"));
 
 		if (httpPoster == null ||
-		httpPoster.getStatus() == AsyncTask.Status.FINISHED)
+				httpPoster.getStatus() == AsyncTask.Status.FINISHED)
 			(httpPoster = new HttpPoster()).execute();
 	}
 
@@ -478,7 +500,7 @@ public class TrackerService extends Service {
 				updateLock.writeLock().unlock();
 
 				AndroidHttpClient httpClient =
-					AndroidHttpClient.newInstance("TripTracker");
+					AndroidHttpClient.newInstance("LocationTracker");
 
 				try {
 					HttpPost post = new HttpPost(endpoint);

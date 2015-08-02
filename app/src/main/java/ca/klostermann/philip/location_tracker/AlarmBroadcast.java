@@ -1,4 +1,4 @@
-package org.jcs.triptracker;
+package ca.klostermann.philip.location_tracker;
 
 import android.content.BroadcastReceiver;
 import android.content.Context;

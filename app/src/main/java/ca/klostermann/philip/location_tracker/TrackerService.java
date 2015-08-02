@@ -1,4 +1,4 @@
-package org.jcs.triptracker;
+package ca.klostermann.philip.location_tracker;
 
 import java.io.FileInputStream;
 import java.io.FileNotFoundException;

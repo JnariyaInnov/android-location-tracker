@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="app_name">Trip Tracker</string>
+    <string name="app_name">Location Tracker</string>
     
 	<string name="main_menu_exit">Exit</string>
 	

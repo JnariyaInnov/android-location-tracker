@@ -328,7 +328,7 @@ public class TrackerService extends Service {
 
 	private void showNotification() {
 		nm = (NotificationManager)getSystemService(NOTIFICATION_SERVICE);
-		notification = new Notification(R.drawable.icon,
+		notification = new Notification(R.mipmap.service_icon,
 			"Trip Tracker Started", System.currentTimeMillis());
 		PendingIntent contentIntent = PendingIntent.getActivity(this, 0,
 			new Intent(this, MainActivity.class), 0);

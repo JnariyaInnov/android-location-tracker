@@ -1,23 +1,13 @@
 package ca.klostermann.philip.location_tracker;
 
-import java.io.FileInputStream;
-import java.io.FileNotFoundException;
-import java.io.FileOutputStream;
-import java.io.IOException;
-import java.io.OutputStreamWriter;
-import java.io.InputStreamReader;
 import java.text.DecimalFormat;
 import java.util.ArrayList;
 import java.util.Date;
 import java.util.HashMap;
-import java.util.Iterator;
-import java.util.List;
 import java.util.Map;
 import java.util.regex.Pattern;
 import java.util.regex.Matcher;
-import java.util.concurrent.locks.ReentrantReadWriteLock;
 
-import android.app.Activity;
 import android.app.AlarmManager;
 import android.app.Notification;
 import android.app.NotificationManager;
@@ -26,8 +16,6 @@ import android.app.Service;
 import android.location.Location;
 import android.content.Context;
 import android.content.Intent;
-import android.net.http.AndroidHttpClient;
-import android.os.AsyncTask;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.IBinder;
@@ -45,17 +33,9 @@ import com.google.android.gms.common.GooglePlayServicesUtil;
 import com.google.android.gms.common.api.GoogleApiClient;
 import com.google.android.gms.location.LocationServices;
 
-import org.apache.http.client.methods.HttpPost;
-import org.apache.http.client.entity.UrlEncodedFormEntity;
-import org.apache.http.HttpResponse;
-import org.apache.http.NameValuePair;
-import org.apache.http.message.BasicNameValuePair;
-import org.json.*;
 
 public class TrackerService extends Service {
 	private static final String TAG = "LocationTracker/Service";
-
-	private final String updatesCache = "updates.cache";
 
 	public static TrackerService service;
 
@@ -71,14 +51,10 @@ public class TrackerService extends Service {
 	private PendingIntent pendingAlarm;
 	private static volatile PowerManager.WakeLock wakeLock;
 
-	private AsyncTask firebasePoster;
-
 	private GoogleApiClient mGoogleApiClient;
 	private Firebase mFirebaseRef;
-	ArrayList<LogMessage> mLogRing = new ArrayList<LogMessage>();
-	ArrayList<Messenger> mClients = new ArrayList<Messenger>();
-	ArrayList<List> mUpdates = new ArrayList<List>();
-	final ReentrantReadWriteLock updateLock = new ReentrantReadWriteLock();
+	ArrayList<LogMessage> mLogRing = new ArrayList<>();
+	ArrayList<Messenger> mClients = new ArrayList<>();
 	final Messenger mMessenger = new Messenger(new IncomingHandler());
 
 	static final int MSG_REGISTER_CLIENT = 1;
@@ -90,35 +66,6 @@ public class TrackerService extends Service {
 	public IBinder onBind(Intent intent) {
 		return mMessenger.getBinder();
 	}
-
-	class LocationListener implements GoogleApiClient.ConnectionCallbacks, GoogleApiClient.OnConnectionFailedListener {
-		@Override
-		public void onConnected(Bundle connectionHint) {
-			Location location = LocationServices.FusedLocationApi.getLastLocation(
-					mGoogleApiClient);
-			if (location != null) {
-				Log.d(TAG, "Location acquired.");
-				Log.d(TAG, "Latitude: " + String.valueOf(location.getLatitude()));
-				Log.d(TAG, "Longitude: " + String.valueOf(location.getLongitude()));
-				sendLocation(location);
-			} else {
-				Log.e(TAG, "location is null");
-			}
-			mGoogleApiClient.disconnect();
-		}
-
-		@Override
-		public void onConnectionSuspended(int i) {
-			Log.e(TAG, "Location connection suspended " + i);
-			logText("No Location found");
-		}
-
-		@Override
-		public void onConnectionFailed(ConnectionResult connectionResult) {
-			Log.e(TAG, "Location Connection failed" + connectionResult);
-			logText("No Location found");
-		}
-	};
 
 	@Override
 	public void onCreate() {
@@ -134,9 +81,13 @@ public class TrackerService extends Service {
 		TrackerService.service = this;
 
 		endpoint = Prefs.getEndpoint(this);
+		if (endpoint == null || endpoint.equals("")) {
+			logText("invalid endpoint, stopping service");
+			stopSelf();
+		}
+
 		int freqSeconds = 0;
 		freqString = null;
-
 		freqString = Prefs.getUpdateFreq(this);
 		if (freqString != null && !freqString.equals("")) {
 			try {
@@ -144,18 +95,14 @@ public class TrackerService extends Service {
 				Matcher m = p.matcher(freqString);
 				m.find();
 				freqSeconds = Integer.parseInt(m.group(1));
-				if (m.group(2).equals("h"))
+				if (m.group(2).equals("h")) {
 					freqSeconds *= (60 * 60);
-				else if (m.group(2).equals("m"))
+				} else if (m.group(2).equals("m")) {
 					freqSeconds *= 60;
+				}
 			}
 			catch (Exception e) {
 			}
-		}
-
-		if (endpoint == null || endpoint.equals("")) {
-			logText("invalid endpoint, stopping service");
-			stopSelf();
 		}
 
 		if (freqSeconds < 1) {
@@ -165,13 +112,12 @@ public class TrackerService extends Service {
 		}
 
 		Firebase.setAndroidContext(this);
+		Firebase.getDefaultConfig().setPersistenceEnabled(true);
 		mFirebaseRef = new Firebase(getFirebaseAddress());
 
 		/* findAndSendLocation() will callback to this */
 		locationListener = new LocationListener();
 		buildGoogleApiClient();
-
-		readCache();
 
 		showNotification();
 
@@ -195,9 +141,6 @@ public class TrackerService extends Service {
 	public void onDestroy() {
 		super.onDestroy();
 
-		if (firebasePoster != null)
-			firebasePoster.cancel(true);
-
 		/* kill persistent notification */
 		nm.cancelAll();
 
@@ -212,126 +155,6 @@ public class TrackerService extends Service {
 		return START_STICKY;
 	}
 
-	public synchronized void buildGoogleApiClient() {
-		mGoogleApiClient = new GoogleApiClient.Builder(this)
-				.addConnectionCallbacks(locationListener)
-				.addOnConnectionFailedListener(locationListener)
-				.addApi(LocationServices.API)
-				.build();
-	}
-
-	/* must be done inside of updateLock */
-	public void cacheUpdates() {
-		OutputStreamWriter cacheStream = null;
-
-		try {
-			FileOutputStream cacheFile = TrackerService.this.openFileOutput(
-					updatesCache, Activity.MODE_PRIVATE);
-			cacheStream = new OutputStreamWriter(cacheFile, "UTF-8");
-
-			/* would be nice to just serialize mUpdates but it's not
-			 * serializable.  create a json array of json objects, each object
-			 * having each key/value pair of one location update. */
-
-			JSONArray ja = new JSONArray();
-
-			for (int i = 0; i < mUpdates.size(); i++) {
-				List<NameValuePair> pair = mUpdates.get(i);
-				JSONObject jo = new JSONObject();
-
-				for (int j = 0; j < pair.size(); j++) {
-					try {
-						jo.put(((NameValuePair)pair.get(j)).getName(),
-							pair.get(j).getValue());
-					}
-					catch (JSONException e) {
-					}
-				}
-
-				ja.put(jo);
-			}
-
-			cacheStream.write(ja.toString());
-			cacheFile.getFD().sync();
-		}
-		catch (IOException e) {
-			Log.w(TAG, e);
-		}
-		finally {
-			if (cacheStream != null) {
-				try {
-					cacheStream.close();
-				}
-				catch (IOException e) {
-				}
-			}
-		}
-	}
-
-	/* read json cache into mUpdates */
-	public void readCache() {
-		updateLock.writeLock().lock();
-
-		InputStreamReader cacheStream = null;
-
-		try {
-			FileInputStream cacheFile = TrackerService.this.openFileInput(
-					updatesCache);
-			StringBuffer buf = new StringBuffer("");
-			byte[] bbuf = new byte[1024];
-			int len;
-
-			while ((len = cacheFile.read(bbuf)) != -1)
-				buf.append(new String(bbuf));
-
-			JSONArray ja = new JSONArray(new String(buf));
-
-			mUpdates = new ArrayList<List>();
-
-			for (int j = 0; j < ja.length(); j++) {
-				JSONObject jo = ja.getJSONObject(j);
-					
-				List<NameValuePair> nvp = new ArrayList<NameValuePair>(2);
-
-				Iterator<String> i = jo.keys();
-				while (i.hasNext()) {
-					String k = (String)i.next();
-					String v = jo.getString(k);
-
-					nvp.add(new BasicNameValuePair(k, v));
-				}
-
-				mUpdates.add(nvp);
-			}
-
-			if (mUpdates.size() > 0)
-				logText("read " + mUpdates.size() + " update" +
-					(mUpdates.size() == 1 ? "" : "s") + " from cache");
-		}
-		catch (JSONException e) {
-		}
-		catch (FileNotFoundException e) {
-		}
-		catch (IOException e) {
-			Log.w(TAG, e);
-		}
-		finally {
-			if (cacheStream != null) {
-				try {
-					cacheStream.close();
-				}
-				catch (IOException e) {
-				}
-			}
-		}
-
-		updateLock.writeLock().unlock();
-	}
-
-	/* called within wake lock from broadcast receiver, but assert that we have
-	 * it so we can keep it longer when we return (since the location request
-	 * uses a callback) and then free it when we're done running through the
-	 * queue */
 	public void findAndSendLocation() {
 		if (wakeLock == null) {
 			PowerManager pm = (PowerManager)this.getSystemService(
@@ -346,6 +169,9 @@ public class TrackerService extends Service {
 		if (!wakeLock.isHeld())
 			wakeLock.acquire();
 
+		/* The LocationListener instance will call sendLocation as soon
+		 * as it receives a location.
+		 */
 		if(!mGoogleApiClient.isConnected()) {
 			mGoogleApiClient.connect();
 		}
@@ -353,6 +179,19 @@ public class TrackerService extends Service {
 
 	public static boolean isRunning() {
 		return isRunning;
+	}
+
+	private synchronized void buildGoogleApiClient() {
+		mGoogleApiClient = new GoogleApiClient.Builder(this)
+				.addConnectionCallbacks(locationListener)
+				.addOnConnectionFailedListener(locationListener)
+				.addApi(LocationServices.API)
+				.build();
+	}
+
+	private String getFirebaseAddress() {
+		String deviceId = Settings.Secure.getString(this.getContentResolver(), Settings.Secure.ANDROID_ID);
+		return endpoint.replaceAll("/$", "") + '/' + deviceId;
 	}
 
 	private void showNotification() {
@@ -402,60 +241,55 @@ public class TrackerService extends Service {
 		}
 	}
 
-	/* flatten an array of NameValuePairs into an array of
-	 * locations[0]latitude, locations[1]latitude, etc. */
-	public List<NameValuePair> getUpdatesAsArray() {
-		List<NameValuePair> pairs = new ArrayList<NameValuePair>(2);
-
-		for (int i = 0; i < mUpdates.size(); i++) {
-			List<NameValuePair> pair = mUpdates.get(i);
-
-			for (int j = 0; j < pair.size(); j++)
-				pairs.add(new BasicNameValuePair(
-					((NameValuePair)pair.get(j)).getName(),
-					pair.get(j).getValue()));
-		}
-		return pairs;
-	}
-	
-	public int getUpdatesSize() {
-		return mUpdates.size();
-	}
-
-	public void removeUpdate(int i) {
-		mUpdates.remove(i);
-	}
-
 	private void sendLocation(Location location) {
-		List<NameValuePair> pairs = new ArrayList<NameValuePair>(2);
-		pairs.add(new BasicNameValuePair("time",
-				String.valueOf(location.getTime())));
-		pairs.add(new BasicNameValuePair("latitude",
-				String.valueOf(location.getLatitude())));
-		pairs.add(new BasicNameValuePair("longitude",
-				String.valueOf(location.getLongitude())));
-		pairs.add(new BasicNameValuePair("speed",
-				String.valueOf(location.getSpeed())));
-
-		/* push these pairs onto the queue, and only run the poster if another
-		 * one isn't running already (if it is, it will keep running through
-		 * the queue until it's empty) */
-		updateLock.writeLock().lock();
-		mUpdates.add(pairs);
-		int size = service.getUpdatesSize();
-		cacheUpdates();
-		updateLock.writeLock().unlock();
+		Map<String,String> postMap = new HashMap<String,String>();
+		postMap.put("time", String.valueOf(location.getTime()));
+		postMap.put("latitude", String.valueOf(location.getLatitude()));
+		postMap.put("longitude", String.valueOf(location.getLongitude()));
+		postMap.put("speed", String.valueOf(location.getSpeed()));
+		postMap.put("altitude", String.valueOf(location.getAltitude()));
+		postMap.put("accuracy", String.valueOf(location.getAccuracy()));
+		postMap.put("provider", String.valueOf(location.getProvider()));
 
 		logText("location " +
 				(new DecimalFormat("#.######").format(location.getLatitude())) +
 				", " +
-				(new DecimalFormat("#.######").format(location.getLongitude())) +
-				(size <= 1 ? "" : " (" + size + " queued)"));
+				(new DecimalFormat("#.######").format(location.getLongitude())));
 
-		if (firebasePoster == null ||
-				firebasePoster.getStatus() == AsyncTask.Status.FINISHED)
-			(firebasePoster = new FirebasePoster()).execute();
+		try {
+			mFirebaseRef.push().setValue(postMap);
+		} catch(Exception e) {
+			Log.e(TAG, "Posting to Firebase failed: " + e.toString());
+			logText("Failed to send location data.");
+		}
 	}
+
+	class LocationListener implements GoogleApiClient.ConnectionCallbacks, GoogleApiClient.OnConnectionFailedListener {
+		@Override
+		public void onConnected(Bundle connectionHint) {
+			Location location = LocationServices.FusedLocationApi.getLastLocation(
+					mGoogleApiClient);
+			if (location != null) {
+				sendLocation(location);
+			} else {
+				Log.e(TAG, "Location is null");
+				logText("No location found");
+			}
+			mGoogleApiClient.disconnect();
+		}
+
+		@Override
+		public void onConnectionSuspended(int i) {
+			Log.w(TAG, "Location connection suspended " + i);
+			logText("No Location found");
+		}
+
+		@Override
+		public void onConnectionFailed(ConnectionResult connectionResult) {
+			Log.e(TAG, "Location connection failed" + connectionResult);
+			logText("No Location found");
+		}
+	};
 
 	class IncomingHandler extends Handler {
 		@Override
@@ -484,89 +318,4 @@ public class TrackerService extends Service {
 		}
 	}
 
-	private String getFirebaseAddress() {
-		String deviceId = Settings.Secure.getString(this.getContentResolver(), Settings.Secure.ANDROID_ID);
-		return endpoint.replaceAll("/$", "") + '/' + deviceId;
-	}
-
-	/* Void as first arg causes a crash, no idea why
-	E/AndroidRuntime(17157): Caused by: java.lang.ClassCastException: java.lang.Object[] cannot be cast to java.lang.Void[]
-	*/
-	class FirebasePoster extends AsyncTask<Object, Void, Boolean> {
-		@Override
-		protected Boolean doInBackground(Object... o) {
-			TrackerService service = TrackerService.service;
-
-			int retried = 0;
-			int max_retries = 4;
-
-			while (true) {
-				if (isCancelled())
-					return false;
-
-				boolean failed = false;
-
-				updateLock.writeLock().lock();
-				List<NameValuePair> pairs = service.getUpdatesAsArray();
-				int pairSize = service.getUpdatesSize();
-				updateLock.writeLock().unlock();
-
-				try {
-					Map<String, String> post = new HashMap<String, String>();
-					for(int i = 0; i < pairs.size(); i++) {
-						String key = pairs.get(i).getName();
-						String val = pairs.get(i).getValue();
-						post.put(key, val);
-					}
-					Log.d(TAG, post.toString());
-					mFirebaseRef.push().setValue(post);
-					updateLock.writeLock().lock();
-					for (int i = pairSize - 1; i >= 0; i--)
-						service.removeUpdate(i);
-					updateLock.writeLock().unlock();
-				}
-				catch (Exception e) {
-					logText("POST failed to " + endpoint + ": " + e);
-					Log.w(TAG, e);
-					failed = true;
-				}
-				finally {
-
-				}
-
-				if (failed) {
-					/* if our initial request failed, snooze for a bit and try
-					 * again, the server might not be reachable */
-					SystemClock.sleep(15 * 1000);
-
-					if (++retried > max_retries) {
-						/* give up since we're holding the wake lock open for
-						 * too long.  we'll get it next time, champ. */
-						logText("too many failures, retrying later (queue " +
-							"size " + service.getUpdatesSize() + ")");
-						break;
-					}
-				}
-				else
-					retried = 0;
-
-				int q = 0;
-				updateLock.writeLock().lock();
-				q = service.getUpdatesSize();
-				cacheUpdates();
-				updateLock.writeLock().unlock();
-
-				if (q == 0)
-					break;
-				/* otherwise, run through the rest of the queue */
-			}
-
-			return false;
-		}
-
-		protected void onPostExecute(Boolean b) {
-			if (wakeLock != null && wakeLock.isHeld())
-				wakeLock.release();
-		}
-	}
 }

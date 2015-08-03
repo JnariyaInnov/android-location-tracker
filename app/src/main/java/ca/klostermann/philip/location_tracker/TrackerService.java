@@ -275,15 +275,6 @@ public class TrackerService extends Service {
 			OnConnectionFailedListener {
 		@Override
 		public void onConnected(Bundle connectionHint) {
-			Location location = LocationServices.FusedLocationApi.getLastLocation(
-					mGoogleApiClient);
-			if (location != null) {
-				sendLocation(location);
-			} else {
-				Log.e(TAG, "Location is null");
-				logText("No location found");
-			}
-
 			createLocationRequest();
 			Intent intent = new Intent(service, LocationReceiver.class);
 			mLocationIntent = PendingIntent.getBroadcast(
@@ -292,6 +283,7 @@ public class TrackerService extends Service {
 					intent,
 					PendingIntent.FLAG_CANCEL_CURRENT);
 
+			// Register for automatic location updates
 			LocationServices.FusedLocationApi.requestLocationUpdates(
 					mGoogleApiClient, mLocationRequest, mLocationIntent);
 		}

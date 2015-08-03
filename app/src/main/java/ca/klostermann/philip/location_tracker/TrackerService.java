@@ -245,7 +245,7 @@ public class TrackerService extends Service {
 		if(location == null) {
 			Log.d(TAG, "Location has not changed");
 			logText("Location has not changed");
-			//return;
+			return;
 		}
 
 		Map<String,String> postMap = new HashMap<>();

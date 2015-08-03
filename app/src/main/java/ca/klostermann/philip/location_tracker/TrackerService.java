@@ -25,7 +25,9 @@ import android.os.RemoteException;
 import android.provider.Settings;
 import android.util.Log;
 
+import com.firebase.client.AuthData;
 import com.firebase.client.Firebase;
+import com.firebase.client.FirebaseError;
 import com.google.android.gms.common.ConnectionResult;
 import com.google.android.gms.common.GooglePlayServicesUtil;
 import com.google.android.gms.common.api.GoogleApiClient;
@@ -55,6 +57,7 @@ public class TrackerService extends Service {
 	private LocationListener mLocationListener;
 	private LocationRequest mLocationRequest;
 	private Firebase mFirebaseRef;
+	private String mUserId;
 
 	ArrayList<LogMessage> mLogRing = new ArrayList<>();
 	ArrayList<Messenger> mClients = new ArrayList<>();
@@ -117,21 +120,45 @@ public class TrackerService extends Service {
 
 		Firebase.setAndroidContext(this);
 
-		mFirebaseRef = new Firebase(createFirebaseAddress());
+		// Authenticate user
+		String email = Prefs.getUserEmail(this);
+		String password = Prefs.getUserPassword(this);
+		if(email == null || email.equals("")
+				|| password == null || password.equals("")) {
+			logText("No email/password found, stopping service");
+			stopSelf();
+			return;
+		}
 
-		// mGoogleApiClient.connect() will callback to this
-		mLocationListener = new LocationListener();
-		buildGoogleApiClient();
-		mGoogleApiClient.connect();
+		logText("Service authenticating...");
+		mFirebaseRef = new Firebase(Prefs.getEndpoint(this));
+		mFirebaseRef.authWithPassword(email, password, new Firebase.AuthResultHandler() {
+			@Override
+			public void onAuthenticated(AuthData authData) {
+				logText("Successfully authenticated");
+				mUserId = authData.getUid();
+				mFirebaseRef = mFirebaseRef.child(mUserId + "/devices/" + getDeviceId() + "/locations/");
 
-		showNotification(freqString);
+				// mGoogleApiClient.connect() will callback to this
+				mLocationListener = new LocationListener();
+				buildGoogleApiClient();
+				mGoogleApiClient.connect();
 
-		isRunning = true;
+				showNotification();
 
-		/* we're not registered yet, so this will just log to our ring buffer,
-		 * but as soon as the client connects we send the log buffer anyway */
-		logText("service started, requesting location update every " +
-			freqString);
+				isRunning = true;
+
+				/* we're not registered yet, so this will just log to our ring buffer,
+	 			* but as soon as the client connects we send the log buffer anyway */
+				logText("service started");
+			}
+
+			@Override
+			public void onAuthenticationError(FirebaseError firebaseError) {
+				logText("Authentication failed, please check email/password, stopping service");
+				stopSelf();
+			}
+		});
 	}
 
 	@Override
@@ -139,7 +166,9 @@ public class TrackerService extends Service {
 		super.onDestroy();
 
 		/* kill persistent notification */
-		nm.cancelAll();
+		if(nm != null) {
+			nm.cancelAll();
+		}
 
 		if(mGoogleApiClient != null && mLocationIntent != null) {
 			LocationServices.FusedLocationApi.removeLocationUpdates(
@@ -172,19 +201,18 @@ public class TrackerService extends Service {
 		mLocationRequest.setPriority(LocationRequest.PRIORITY_HIGH_ACCURACY);
 	}
 
-	private String createFirebaseAddress() {
-		String deviceId = Settings.Secure.getString(this.getContentResolver(), Settings.Secure.ANDROID_ID);
-		return endpoint.replaceAll("/$", "") + '/' + deviceId;
+	private String getDeviceId() {
+		return  Settings.Secure.getString(this.getContentResolver(), Settings.Secure.ANDROID_ID);
 	}
 
-	private void showNotification(String freqString) {
+	private void showNotification() {
 		nm = (NotificationManager)getSystemService(NOTIFICATION_SERVICE);
 		notification = new Notification(R.mipmap.service_icon,
 			"Location Tracker Started", System.currentTimeMillis());
 		PendingIntent contentIntent = PendingIntent.getActivity(this, 0,
 			new Intent(this, MainActivity.class), 0);
 		notification.setLatestEventInfo(this, "Location Tracker",
-			"Sending location every " + freqString, contentIntent);
+			"Service started", contentIntent);
 		notification.flags = Notification.FLAG_ONGOING_EVENT;
 		nm.notify(1, notification);
 	}

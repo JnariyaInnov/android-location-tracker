@@ -38,8 +38,7 @@ public class MainActivity extends Activity {
 	private static final String TAG = "TripTracker/Main";
 	static final int LOGIN_REQUEST = 1;
 
-	private String mUserID;
-	CheckBox enabler;
+	private CheckBox enabler;
 
 	Messenger mService = null;
 	boolean mIsBound;
@@ -50,18 +49,6 @@ public class MainActivity extends Activity {
 		super.onCreate(savedInstanceState);
 
 		setContentView(R.layout.main);
-
-
-
-
-		/* DEVLOPMENT REMOVE WHEN READY */
-		Prefs.putUserId(this, null);
-		Prefs.putUserEmail(this, null);
-		Prefs.putUserPassword(this, null);
-
-
-
-
 
 		Firebase.setAndroidContext(this);
 		if(!Firebase.getDefaultConfig().isPersistenceEnabled()) {
@@ -97,6 +84,7 @@ public class MainActivity extends Activity {
 					e = u.toURI().toString();
 
 					Prefs.putEndpoint(MainActivity.this, e);
+					Prefs.putUserId(MainActivity.this, null);
 				}
 				catch (Exception ex) {
 					endpoint.setError("Invalid Firebase URL");
@@ -184,6 +172,9 @@ public class MainActivity extends Activity {
 			}
 		});
 
+
+
+
 		/* if the service is already running, bind and we'll get back its
 		 * recent log ring buffer */
 		if (TrackerService.isRunning()) {
@@ -200,13 +191,15 @@ public class MainActivity extends Activity {
 		if (requestCode == LOGIN_REQUEST) {
 			if(resultCode == RESULT_OK){
 				Prefs.putUserId(MainActivity.this, data.getStringExtra("uid"));
-				Log.d(TAG, "Authentication successful");
+				Prefs.putUserEmail(MainActivity.this, data.getStringExtra("email"));
+				Prefs.putUserPassword(MainActivity.this, data.getStringExtra("password"));
+
 				enabler.performClick();
 			}
 			if (resultCode == RESULT_CANCELED) {
-				Prefs.putUserId(MainActivity.this, null);
-				Log.w(TAG, "Authentication failed");
-				enabler.setChecked(false);
+				if(!TrackerService.isRunning()) {
+					enabler.setChecked(false);
+				}
 			}
 		}
 	}
@@ -226,7 +219,11 @@ public class MainActivity extends Activity {
 			stopService(new Intent(MainActivity.this, TrackerService.class));
 			doUnbindService();
 			finish();
+			return true;
 
+			case R.id.menu_signin:
+			Intent i = new Intent(this, LoginActivity.class);
+			startActivityForResult(i, LOGIN_REQUEST);
 			return true;
 		}
 

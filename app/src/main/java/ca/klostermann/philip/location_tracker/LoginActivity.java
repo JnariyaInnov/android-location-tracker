@@ -97,6 +97,16 @@ public class LoginActivity extends Activity implements
         mLoginFormView = findViewById(R.id.login_form);
         mProgressView = findViewById(R.id.login_progress);
         mEmailLoginFormView = findViewById(R.id.email_login_form);
+
+        //Load credentials from Prefs (if any)
+        String storedEmail = Prefs.getUserEmail(this);
+        if(storedEmail != null) {
+            mEmailView.setText(storedEmail);
+        }
+        String storedPassword = Prefs.getUserPassword(this);
+        if(storedEmail != null) {
+            mPasswordView.setText(storedPassword);
+        }
     }
 
     private void populateAutoComplete() {
@@ -133,7 +143,6 @@ public class LoginActivity extends Activity implements
 
     @Override
     public void onLoginSuccess(AuthData authData) {
-        Log.d(TAG, "AUTHENTICATED: " + authData.getUid());
         showProgress(false);
         Intent returnIntent = new Intent();
         returnIntent.putExtra("uid", authData.getUid());

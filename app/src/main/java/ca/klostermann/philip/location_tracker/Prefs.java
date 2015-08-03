@@ -85,6 +85,6 @@ public final class Prefs {
 	}
 
 	public static void putUserPassword(final Context context, String password) {
-		Prefs.putPref(context, USER_EMAIL, password);
+		Prefs.putPref(context, USER_PASSWORD, password);
 	}
 }

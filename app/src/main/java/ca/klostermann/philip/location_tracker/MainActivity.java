@@ -62,16 +62,25 @@ public class MainActivity extends Activity {
 				if (hasFocus)
 					return;
 
-				String e = endpoint.getText().toString();
+				String e = endpoint.getText().toString().trim();
+
+				if(!e.matches("(?i)^https?:\\/\\/.+")) {
+					e = "https://" + e;
+					endpoint.setText(e);
+				}
 
 				try {
 					URL u = new URL(e);
+					if(!u.getHost().matches("(?i)^.+?\\.firebaseio.com$")) {
+						throw new Exception("Not a Firebase URL");
+					}
+
 					e = u.toURI().toString();
 
 					Prefs.putEndpoint(MainActivity.this, e);
 				}
 				catch (Exception ex) {
-					endpoint.setError("Invalid URL");
+					endpoint.setError("Invalid Firebase URL");
 					Prefs.putEndpoint(MainActivity.this, null);
 				}
 

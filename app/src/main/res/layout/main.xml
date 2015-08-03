@@ -16,7 +16,7 @@
 
         <EditText
             android:id="@+id/main_endpoint"
-            android:hint="@string/main_endpoint_hint"
+            android:hint="@string/main_firebase_hint"
             android:singleLine="true"
             android:maxLines="1"
             android:layout_width="fill_parent"

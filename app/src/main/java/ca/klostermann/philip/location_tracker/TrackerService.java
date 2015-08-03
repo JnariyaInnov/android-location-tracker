@@ -9,8 +9,10 @@ import java.io.InputStreamReader;
 import java.text.DecimalFormat;
 import java.util.ArrayList;
 import java.util.Date;
+import java.util.HashMap;
 import java.util.Iterator;
 import java.util.List;
+import java.util.Map;
 import java.util.regex.Pattern;
 import java.util.regex.Matcher;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
@@ -34,8 +36,10 @@ import android.os.Messenger;
 import android.os.PowerManager;
 import android.os.RemoteException;
 import android.os.SystemClock;
+import android.provider.Settings;
 import android.util.Log;
 
+import com.firebase.client.Firebase;
 import com.google.android.gms.common.ConnectionResult;
 import com.google.android.gms.common.GooglePlayServicesUtil;
 import com.google.android.gms.common.api.GoogleApiClient;
@@ -67,9 +71,10 @@ public class TrackerService extends Service {
 	private PendingIntent pendingAlarm;
 	private static volatile PowerManager.WakeLock wakeLock;
 
-	private AsyncTask httpPoster;
+	private AsyncTask firebasePoster;
 
-	GoogleApiClient mGoogleApiClient;
+	private GoogleApiClient mGoogleApiClient;
+	private Firebase mFirebaseRef;
 	ArrayList<LogMessage> mLogRing = new ArrayList<LogMessage>();
 	ArrayList<Messenger> mClients = new ArrayList<Messenger>();
 	ArrayList<List> mUpdates = new ArrayList<List>();
@@ -159,6 +164,9 @@ public class TrackerService extends Service {
 			stopSelf();
 		}
 
+		Firebase.setAndroidContext(this);
+		mFirebaseRef = new Firebase(getFirebaseAddress());
+
 		/* findAndSendLocation() will callback to this */
 		locationListener = new LocationListener();
 		buildGoogleApiClient();
@@ -187,8 +195,8 @@ public class TrackerService extends Service {
 	public void onDestroy() {
 		super.onDestroy();
 
-		if (httpPoster != null)
-			httpPoster.cancel(true);
+		if (firebasePoster != null)
+			firebasePoster.cancel(true);
 
 		/* kill persistent notification */
 		nm.cancelAll();
@@ -403,11 +411,10 @@ public class TrackerService extends Service {
 			List<NameValuePair> pair = mUpdates.get(i);
 
 			for (int j = 0; j < pair.size(); j++)
-				pairs.add(new BasicNameValuePair("locations[" + i + "][" +
-					((NameValuePair)pair.get(j)).getName() + "]",
+				pairs.add(new BasicNameValuePair(
+					((NameValuePair)pair.get(j)).getName(),
 					pair.get(j).getValue()));
 		}
-
 		return pairs;
 	}
 	
@@ -445,9 +452,9 @@ public class TrackerService extends Service {
 				(new DecimalFormat("#.######").format(location.getLongitude())) +
 				(size <= 1 ? "" : " (" + size + " queued)"));
 
-		if (httpPoster == null ||
-				httpPoster.getStatus() == AsyncTask.Status.FINISHED)
-			(httpPoster = new HttpPoster()).execute();
+		if (firebasePoster == null ||
+				firebasePoster.getStatus() == AsyncTask.Status.FINISHED)
+			(firebasePoster = new FirebasePoster()).execute();
 	}
 
 	class IncomingHandler extends Handler {
@@ -477,10 +484,15 @@ public class TrackerService extends Service {
 		}
 	}
 
+	private String getFirebaseAddress() {
+		String deviceId = Settings.Secure.getString(this.getContentResolver(), Settings.Secure.ANDROID_ID);
+		return endpoint.replaceAll("/$", "") + '/' + deviceId;
+	}
+
 	/* Void as first arg causes a crash, no idea why
 	E/AndroidRuntime(17157): Caused by: java.lang.ClassCastException: java.lang.Object[] cannot be cast to java.lang.Void[]
 	*/
-	class HttpPoster extends AsyncTask<Object, Void, Boolean> {
+	class FirebasePoster extends AsyncTask<Object, Void, Boolean> {
 		@Override
 		protected Boolean doInBackground(Object... o) {
 			TrackerService service = TrackerService.service;
@@ -499,29 +511,19 @@ public class TrackerService extends Service {
 				int pairSize = service.getUpdatesSize();
 				updateLock.writeLock().unlock();
 
-				AndroidHttpClient httpClient =
-					AndroidHttpClient.newInstance("LocationTracker");
-
 				try {
-					HttpPost post = new HttpPost(endpoint);
-					post.setEntity(new UrlEncodedFormEntity(pairs));
-					HttpResponse resp = httpClient.execute(post);
-
-					int httpStatus = resp.getStatusLine().getStatusCode();
-					if (httpStatus == 200) {
-						/* all good, we can remove everything we've sent from
-						 * the queue (but not just clear it, in case another
-						 * one jumped onto the end while we were here) */
-						updateLock.writeLock().lock();
-						for (int i = pairSize - 1; i >= 0; i--)
-							service.removeUpdate(i);
-						updateLock.writeLock().unlock();
+					Map<String, String> post = new HashMap<String, String>();
+					for(int i = 0; i < pairs.size(); i++) {
+						String key = pairs.get(i).getName();
+						String val = pairs.get(i).getValue();
+						post.put(key, val);
 					}
-					else {
-						logText("POST failed to " + endpoint + ": got " +
-							httpStatus + " status");
-						failed = true;
-					}
+					Log.d(TAG, post.toString());
+					mFirebaseRef.push().setValue(post);
+					updateLock.writeLock().lock();
+					for (int i = pairSize - 1; i >= 0; i--)
+						service.removeUpdate(i);
+					updateLock.writeLock().unlock();
 				}
 				catch (Exception e) {
 					logText("POST failed to " + endpoint + ": " + e);
@@ -529,8 +531,7 @@ public class TrackerService extends Service {
 					failed = true;
 				}
 				finally {
-					if (httpClient != null)
-						httpClient.close();
+
 				}
 
 				if (failed) {

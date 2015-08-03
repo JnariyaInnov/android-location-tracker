@@ -86,6 +86,7 @@ public class TrackerService extends Service {
 			stopSelf();
 		}
 
+
 		int freqSeconds = 0;
 		freqString = null;
 		freqString = Prefs.getUpdateFreq(this);
@@ -102,6 +103,7 @@ public class TrackerService extends Service {
 				}
 			}
 			catch (Exception e) {
+				Log.d(TAG, e.toString());
 			}
 		}
 
@@ -112,7 +114,9 @@ public class TrackerService extends Service {
 		}
 
 		Firebase.setAndroidContext(this);
-		Firebase.getDefaultConfig().setPersistenceEnabled(true);
+		if(!Firebase.getDefaultConfig().isPersistenceEnabled()) {
+			Firebase.getDefaultConfig().setPersistenceEnabled(true);
+		}
 		mFirebaseRef = new Firebase(getFirebaseAddress());
 
 		/* findAndSendLocation() will callback to this */

@@ -8,7 +8,6 @@ import java.util.Map;
 import java.util.regex.Pattern;
 import java.util.regex.Matcher;
 
-import android.app.AlarmManager;
 import android.app.Notification;
 import android.app.NotificationManager;
 import android.app.PendingIntent;
@@ -23,7 +22,6 @@ import android.os.Message;
 import android.os.Messenger;
 import android.os.PowerManager;
 import android.os.RemoteException;
-import android.os.SystemClock;
 import android.provider.Settings;
 import android.util.Log;
 
@@ -31,6 +29,10 @@ import com.firebase.client.Firebase;
 import com.google.android.gms.common.ConnectionResult;
 import com.google.android.gms.common.GooglePlayServicesUtil;
 import com.google.android.gms.common.api.GoogleApiClient;
+import com.google.android.gms.common.api.GoogleApiClient.ConnectionCallbacks;
+import com.google.android.gms.common.api.GoogleApiClient.OnConnectionFailedListener;
+
+import com.google.android.gms.location.LocationRequest;
 import com.google.android.gms.location.LocationServices;
 
 
@@ -43,16 +45,17 @@ public class TrackerService extends Service {
 	private Notification notification;
 	private static boolean isRunning = false;
 
-	private String freqString;
+	private int freqSeconds;
 	private String endpoint;
 
-	private LocationListener locationListener;
-	private AlarmManager alarmManager;
-	private PendingIntent pendingAlarm;
 	private static volatile PowerManager.WakeLock wakeLock;
+	private PendingIntent mLocationIntent;
 
 	private GoogleApiClient mGoogleApiClient;
+	private LocationListener mLocationListener;
+	private LocationRequest mLocationRequest;
 	private Firebase mFirebaseRef;
+
 	ArrayList<LogMessage> mLogRing = new ArrayList<>();
 	ArrayList<Messenger> mClients = new ArrayList<>();
 	final Messenger mMessenger = new Messenger(new IncomingHandler());
@@ -86,9 +89,8 @@ public class TrackerService extends Service {
 			stopSelf();
 		}
 
-
-		int freqSeconds = 0;
-		freqString = null;
+		freqSeconds = 0;
+		String freqString = null;
 		freqString = Prefs.getUpdateFreq(this);
 		if (freqString != null && !freqString.equals("")) {
 			try {
@@ -117,13 +119,14 @@ public class TrackerService extends Service {
 		if(!Firebase.getDefaultConfig().isPersistenceEnabled()) {
 			Firebase.getDefaultConfig().setPersistenceEnabled(true);
 		}
-		mFirebaseRef = new Firebase(getFirebaseAddress());
+		mFirebaseRef = new Firebase(createFirebaseAddress());
 
-		/* findAndSendLocation() will callback to this */
-		locationListener = new LocationListener();
+		// mGoogleApiClient.connect() will callback to this
+		mLocationListener = new LocationListener();
 		buildGoogleApiClient();
+		mGoogleApiClient.connect();
 
-		showNotification();
+		showNotification(freqString);
 
 		isRunning = true;
 
@@ -131,14 +134,6 @@ public class TrackerService extends Service {
 		 * but as soon as the client connects we send the log buffer anyway */
 		logText("service started, requesting location update every " +
 			freqString);
-
-		/* we don't need to be exact in our frequency, try to conserve at least
-		 * a little battery */
-		alarmManager = (AlarmManager)getSystemService(ALARM_SERVICE);
-		Intent i = new Intent(this, AlarmBroadcast.class);
-		pendingAlarm = PendingIntent.getBroadcast(this, 0, i, 0);
-		alarmManager.setInexactRepeating(AlarmManager.ELAPSED_REALTIME_WAKEUP,
-			SystemClock.elapsedRealtime(), freqSeconds * 1000, pendingAlarm);
 	}
 
 	@Override
@@ -148,9 +143,10 @@ public class TrackerService extends Service {
 		/* kill persistent notification */
 		nm.cancelAll();
 
-		if (pendingAlarm != null)
-			alarmManager.cancel(pendingAlarm);
-
+		if(mGoogleApiClient != null && mLocationIntent != null) {
+			LocationServices.FusedLocationApi.removeLocationUpdates(
+					mGoogleApiClient, mLocationIntent);
+		}
 		isRunning = false;
 	}
 
@@ -159,46 +155,31 @@ public class TrackerService extends Service {
 		return START_STICKY;
 	}
 
-	public void findAndSendLocation() {
-		if (wakeLock == null) {
-			PowerManager pm = (PowerManager)this.getSystemService(
-				Context.POWER_SERVICE);
-
-			/* we don't need the screen on */
-			wakeLock = pm.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK,
-				"locationtracker");
-			wakeLock.setReferenceCounted(true);
-		}
-
-		if (!wakeLock.isHeld())
-			wakeLock.acquire();
-
-		/* The LocationListener instance will call sendLocation as soon
-		 * as it receives a location.
-		 */
-		if(!mGoogleApiClient.isConnected()) {
-			mGoogleApiClient.connect();
-		}
-	}
-
 	public static boolean isRunning() {
 		return isRunning;
 	}
 
 	private synchronized void buildGoogleApiClient() {
 		mGoogleApiClient = new GoogleApiClient.Builder(this)
-				.addConnectionCallbacks(locationListener)
-				.addOnConnectionFailedListener(locationListener)
+				.addConnectionCallbacks(mLocationListener)
+				.addOnConnectionFailedListener(mLocationListener)
 				.addApi(LocationServices.API)
 				.build();
 	}
 
-	private String getFirebaseAddress() {
+	private void createLocationRequest() {
+		mLocationRequest = new LocationRequest();
+		mLocationRequest.setInterval(freqSeconds * 1000);
+		mLocationRequest.setFastestInterval(5000);
+		mLocationRequest.setPriority(LocationRequest.PRIORITY_HIGH_ACCURACY);
+	}
+
+	private String createFirebaseAddress() {
 		String deviceId = Settings.Secure.getString(this.getContentResolver(), Settings.Secure.ANDROID_ID);
 		return endpoint.replaceAll("/$", "") + '/' + deviceId;
 	}
 
-	private void showNotification() {
+	private void showNotification(String freqString) {
 		nm = (NotificationManager)getSystemService(NOTIFICATION_SERVICE);
 		notification = new Notification(R.mipmap.service_icon,
 			"Location Tracker Started", System.currentTimeMillis());
@@ -245,8 +226,29 @@ public class TrackerService extends Service {
 		}
 	}
 
-	private void sendLocation(Location location) {
-		Map<String,String> postMap = new HashMap<String,String>();
+	public void sendLocation(Location location) {
+		/* Wake up */
+		if (wakeLock == null) {
+			PowerManager pm = (PowerManager)this.getSystemService(
+					Context.POWER_SERVICE);
+
+			/* we don't need the screen on */
+			wakeLock = pm.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK,
+					"locationtracker");
+			wakeLock.setReferenceCounted(true);
+		}
+
+		if (!wakeLock.isHeld())
+			wakeLock.acquire();
+
+		Log.d(TAG, "Location update received");
+		if(location == null) {
+			Log.d(TAG, "Location has not changed");
+			logText("Location has not changed");
+			//return;
+		}
+
+		Map<String,String> postMap = new HashMap<>();
 		postMap.put("time", String.valueOf(location.getTime()));
 		postMap.put("latitude", String.valueOf(location.getLatitude()));
 		postMap.put("longitude", String.valueOf(location.getLongitude()));
@@ -268,7 +270,9 @@ public class TrackerService extends Service {
 		}
 	}
 
-	class LocationListener implements GoogleApiClient.ConnectionCallbacks, GoogleApiClient.OnConnectionFailedListener {
+	class LocationListener implements
+			ConnectionCallbacks,
+			OnConnectionFailedListener {
 		@Override
 		public void onConnected(Bundle connectionHint) {
 			Location location = LocationServices.FusedLocationApi.getLastLocation(
@@ -279,7 +283,17 @@ public class TrackerService extends Service {
 				Log.e(TAG, "Location is null");
 				logText("No location found");
 			}
-			mGoogleApiClient.disconnect();
+
+			createLocationRequest();
+			Intent intent = new Intent(service, LocationReceiver.class);
+			mLocationIntent = PendingIntent.getBroadcast(
+					getApplicationContext(),
+					14872,
+					intent,
+					PendingIntent.FLAG_CANCEL_CURRENT);
+
+			LocationServices.FusedLocationApi.requestLocationUpdates(
+					mGoogleApiClient, mLocationRequest, mLocationIntent);
 		}
 
 		@Override

@@ -1,6 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string-array name="main_updatefreq_entries">
+        <item>10s</item>
         <item>1m</item>
         <item>5m</item>
         <item>10m</item>

@@ -12,7 +12,6 @@ public final class Prefs {
 	public static String ENDPOINT = "endpoint";
 	public static String ENABLED = "enabled";
 	public static String UPDATE_FREQ = "update_freq";
-	public static String LAST_POST_TIME = "last_post_time";
 
     public static SharedPreferences get(final Context context) {
         return context.getSharedPreferences("org.jcs.triptracker",

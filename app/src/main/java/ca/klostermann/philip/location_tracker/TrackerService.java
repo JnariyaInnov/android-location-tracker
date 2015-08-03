@@ -291,7 +291,7 @@ public class TrackerService extends Service {
 		@Override
 		public void onConnectionSuspended(int i) {
 			Log.w(TAG, "Location connection suspended " + i);
-			logText("No Location found");
+			mGoogleApiClient.connect();
 		}
 
 		@Override
@@ -299,7 +299,7 @@ public class TrackerService extends Service {
 			Log.e(TAG, "Location connection failed" + connectionResult);
 			logText("No Location found");
 		}
-	};
+	}
 
 	class IncomingHandler extends Handler {
 		@Override

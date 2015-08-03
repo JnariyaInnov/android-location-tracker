@@ -116,9 +116,7 @@ public class TrackerService extends Service {
 		}
 
 		Firebase.setAndroidContext(this);
-		if(!Firebase.getDefaultConfig().isPersistenceEnabled()) {
-			Firebase.getDefaultConfig().setPersistenceEnabled(true);
-		}
+
 		mFirebaseRef = new Firebase(createFirebaseAddress());
 
 		// mGoogleApiClient.connect() will callback to this

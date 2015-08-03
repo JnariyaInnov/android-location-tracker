@@ -4,7 +4,6 @@ import android.app.Activity;
 import android.content.ComponentName;
 import android.content.Context;
 import android.content.Intent;
-import android.content.SharedPreferences;
 import android.content.ServiceConnection;
 import android.os.Bundle;
 import android.os.IBinder;
@@ -14,8 +13,6 @@ import android.os.Messenger;
 import android.os.RemoteException;
 import android.util.Log;
 import android.view.Menu;
-import android.view.ContextMenu;
-import android.view.ContextMenu.ContextMenuInfo;
 import android.view.MenuInflater;
 import android.view.MenuItem;
 import android.view.View;
@@ -23,14 +20,15 @@ import android.view.View.OnClickListener;
 import android.view.View.OnFocusChangeListener;
 import android.view.inputmethod.InputMethodManager;
 import android.widget.AdapterView;
-import android.widget.AdapterView.OnItemClickListener;
 import android.widget.ArrayAdapter;
 import android.widget.CheckBox;
 import android.widget.EditText;
-import android.widget.ListView;
 import android.widget.Spinner;
 import android.widget.ScrollView;
 import android.widget.TextView;
+
+import com.firebase.client.Firebase;
+
 import java.net.URL;
 import java.text.SimpleDateFormat;
 import java.util.ArrayList;
@@ -38,6 +36,10 @@ import java.util.Date;
 
 public class MainActivity extends Activity {
 	private static final String TAG = "TripTracker/Main";
+	static final int LOGIN_REQUEST = 1;
+
+	private String mUserID;
+	CheckBox enabler;
 
 	Messenger mService = null;
 	boolean mIsBound;
@@ -48,6 +50,23 @@ public class MainActivity extends Activity {
 		super.onCreate(savedInstanceState);
 
 		setContentView(R.layout.main);
+
+
+
+
+		/* DEVLOPMENT REMOVE WHEN READY */
+		Prefs.putUserId(this, null);
+		Prefs.putUserEmail(this, null);
+		Prefs.putUserPassword(this, null);
+
+
+
+
+
+		Firebase.setAndroidContext(this);
+		if(!Firebase.getDefaultConfig().isPersistenceEnabled()) {
+			Firebase.getDefaultConfig().setPersistenceEnabled(true);
+		}
 
 		/* load saved endpoint */
 		final EditText endpoint = (EditText)findViewById(R.id.main_endpoint);
@@ -82,6 +101,7 @@ public class MainActivity extends Activity {
 				catch (Exception ex) {
 					endpoint.setError("Invalid Firebase URL");
 					Prefs.putEndpoint(MainActivity.this, null);
+					return;
 				}
 
 				/* hide the keyboard */
@@ -129,7 +149,7 @@ public class MainActivity extends Activity {
 			}
 		});
 
-		final CheckBox enabler = (CheckBox)findViewById(R.id.main_enabler);
+		enabler = (CheckBox)findViewById(R.id.main_enabler);
 
 		enabler.setOnClickListener(new OnClickListener() {
 			@Override
@@ -139,15 +159,22 @@ public class MainActivity extends Activity {
 				findViewById(R.id.main_layout).requestFocus();
 
 				if (enabler.isChecked()) {
-					if (Prefs.getEndpoint(MainActivity.this) == null)
+					if (Prefs.getEndpoint(MainActivity.this) == null) {
 						enabler.setChecked(false);
-					else {
-						startService(new Intent(MainActivity.this,
-							TrackerService.class));
-						doBindService();
+						return;
 					}
-				}
-				else {
+
+					if (Prefs.getUserId(MainActivity.this) == null) {
+						enabler.setChecked(false);
+						Intent authenticateIntent = new Intent(MainActivity.this, LoginActivity.class);
+						startActivityForResult(authenticateIntent, LOGIN_REQUEST);
+						return;
+					}
+
+					startService(new Intent(MainActivity.this,
+						TrackerService.class));
+						doBindService();
+				} else {
 					stopService(new Intent(MainActivity.this,
 						TrackerService.class));
 					doUnbindService();
@@ -163,8 +190,25 @@ public class MainActivity extends Activity {
 			enabler.setChecked(true);
 			doBindService();
 		}
-		else if (Prefs.getEnabled(this))
+		else if (Prefs.getEnabled(this) && Prefs.getUserId(this) != null) {
 			enabler.performClick();
+		}
+	}
+
+	@Override
+	protected void onActivityResult(int requestCode, int resultCode, Intent data) {
+		if (requestCode == LOGIN_REQUEST) {
+			if(resultCode == RESULT_OK){
+				Prefs.putUserId(MainActivity.this, data.getStringExtra("uid"));
+				Log.d(TAG, "Authentication successful");
+				enabler.performClick();
+			}
+			if (resultCode == RESULT_CANCELED) {
+				Prefs.putUserId(MainActivity.this, null);
+				Log.w(TAG, "Authentication failed");
+				enabler.setChecked(false);
+			}
+		}
 	}
 
 	@Override

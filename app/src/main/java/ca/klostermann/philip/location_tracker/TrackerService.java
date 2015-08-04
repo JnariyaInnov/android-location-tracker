@@ -47,6 +47,7 @@ public class TrackerService extends Service {
 	private Notification notification;
 	private static boolean isRunning = false;
 
+	private String freqString;
 	private int freqSeconds;
 	private String endpoint;
 
@@ -55,7 +56,6 @@ public class TrackerService extends Service {
 
 	private GoogleApiClient mGoogleApiClient;
 	private LocationListener mLocationListener;
-	private LocationRequest mLocationRequest;
 	private Firebase mFirebaseRef;
 	private String mUserId;
 
@@ -82,18 +82,19 @@ public class TrackerService extends Service {
 		if(resp != ConnectionResult.SUCCESS){
 			logText("Google Play Services not found. Please install to use this app.");
 			stopSelf();
+			return;
 		}
 
 		TrackerService.service = this;
 
 		endpoint = Prefs.getEndpoint(this);
 		if (endpoint == null || endpoint.equals("")) {
-			logText("invalid endpoint, stopping service");
+			logText("Invalid endpoint, stopping service");
 			stopSelf();
+			return;
 		}
 
 		freqSeconds = 0;
-		String freqString = null;
 		freqString = Prefs.getUpdateFreq(this);
 		if (freqString != null && !freqString.equals("")) {
 			try {
@@ -113,15 +114,13 @@ public class TrackerService extends Service {
 		}
 
 		if (freqSeconds < 1) {
-			logText("invalid frequency (" + freqSeconds + "), stopping " +
-				"service");
+			logText("Invalid frequency (" + freqSeconds + "), stopping " +
+					"service");
 			stopSelf();
+			return;
 		}
 
 		Firebase.setAndroidContext(this);
-		if(!Firebase.getDefaultConfig().isPersistenceEnabled()) {
-			Firebase.getDefaultConfig().setPersistenceEnabled(true);
-		}
 
 		// Authenticate user
 		String email = Prefs.getUserEmail(this);
@@ -144,7 +143,7 @@ public class TrackerService extends Service {
 
 				// mGoogleApiClient.connect() will callback to this
 				mLocationListener = new LocationListener();
-				buildGoogleApiClient();
+				mGoogleApiClient = buildGoogleApiClient();
 				mGoogleApiClient.connect();
 
 				showNotification();
@@ -153,13 +152,14 @@ public class TrackerService extends Service {
 
 				/* we're not registered yet, so this will just log to our ring buffer,
 	 			* but as soon as the client connects we send the log buffer anyway */
-				logText("service started");
+				logText("Service started, update frequency " + freqString);
 			}
 
 			@Override
 			public void onAuthenticationError(FirebaseError firebaseError) {
 				logText("Authentication failed, please check email/password, stopping service");
 				stopSelf();
+				return;
 			}
 		});
 	}
@@ -189,19 +189,19 @@ public class TrackerService extends Service {
 		return isRunning;
 	}
 
-	private synchronized void buildGoogleApiClient() {
-		mGoogleApiClient = new GoogleApiClient.Builder(this)
+	private synchronized GoogleApiClient buildGoogleApiClient() {
+		return new GoogleApiClient.Builder(this)
 				.addConnectionCallbacks(mLocationListener)
 				.addOnConnectionFailedListener(mLocationListener)
 				.addApi(LocationServices.API)
 				.build();
 	}
 
-	private void createLocationRequest() {
-		mLocationRequest = new LocationRequest();
-		mLocationRequest.setInterval(freqSeconds * 1000);
-		mLocationRequest.setFastestInterval(5000);
-		mLocationRequest.setPriority(LocationRequest.PRIORITY_HIGH_ACCURACY);
+	private LocationRequest createLocationRequest() {
+		return new LocationRequest()
+				.setInterval(freqSeconds * 1000)
+				.setFastestInterval(5000)
+				.setPriority(LocationRequest.PRIORITY_HIGH_ACCURACY);
 	}
 
 	private String getDeviceId() {
@@ -211,11 +211,11 @@ public class TrackerService extends Service {
 	private void showNotification() {
 		nm = (NotificationManager)getSystemService(NOTIFICATION_SERVICE);
 		notification = new Notification(R.mipmap.service_icon,
-			"Location Tracker Started", System.currentTimeMillis());
+				"Location Tracker Started", System.currentTimeMillis());
 		PendingIntent contentIntent = PendingIntent.getActivity(this, 0,
-			new Intent(this, MainActivity.class), 0);
+				new Intent(this, MainActivity.class), 0);
 		notification.setLatestEventInfo(this, "Location Tracker",
-			"Service started", contentIntent);
+				"Service started", contentIntent);
 		notification.flags = Notification.FLAG_ONGOING_EVENT;
 		nm.notify(1, notification);
 	}
@@ -223,9 +223,9 @@ public class TrackerService extends Service {
 	private void updateNotification(String text) {
 		if (nm != null) {
 			PendingIntent contentIntent = PendingIntent.getActivity(this, 0,
-				new Intent(this, MainActivity.class), 0);
+					new Intent(this, MainActivity.class), 0);
 			notification.setLatestEventInfo(this, "Location Tracker", text,
-				contentIntent);
+					contentIntent);
 			notification.when = System.currentTimeMillis();
 			nm.notify(1, notification);
 		}
@@ -237,7 +237,7 @@ public class TrackerService extends Service {
 		int MAX_RING_SIZE = 15;
 		if (mLogRing.size() > MAX_RING_SIZE)
 			mLogRing.remove(0);
-	
+
 		updateNotification(log);
 
 		for (int i = mClients.size() - 1; i >= 0; i--) {
@@ -285,7 +285,7 @@ public class TrackerService extends Service {
 		postMap.put("accuracy", String.valueOf(location.getAccuracy()));
 		postMap.put("provider", String.valueOf(location.getProvider()));
 
-		logText("location " +
+		logText("Location " +
 				(new DecimalFormat("#.######").format(location.getLatitude())) +
 				", " +
 				(new DecimalFormat("#.######").format(location.getLongitude())));
@@ -303,7 +303,7 @@ public class TrackerService extends Service {
 			OnConnectionFailedListener {
 		@Override
 		public void onConnected(Bundle connectionHint) {
-			createLocationRequest();
+			LocationRequest locationRequest = createLocationRequest();
 			Intent intent = new Intent(service, LocationReceiver.class);
 			mLocationIntent = PendingIntent.getBroadcast(
 					getApplicationContext(),
@@ -313,7 +313,7 @@ public class TrackerService extends Service {
 
 			// Register for automatic location updates
 			LocationServices.FusedLocationApi.requestLocationUpdates(
-					mGoogleApiClient, mLocationRequest, mLocationIntent);
+					mGoogleApiClient, locationRequest, mLocationIntent);
 		}
 
 		@Override
@@ -343,8 +343,8 @@ public class TrackerService extends Service {
 					msg.replyTo.send(replyMsg);
 				}
 				catch (RemoteException e) {
+					Log.e(TAG, e.getMessage());
 				}
-
 				break;
 			case MSG_UNREGISTER_CLIENT:
 				mClients.remove(msg.replyTo);

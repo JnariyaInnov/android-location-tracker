@@ -33,6 +33,7 @@ import java.net.URL;
 import java.text.SimpleDateFormat;
 import java.util.ArrayList;
 import java.util.Date;
+import java.util.Locale;
 
 public class MainActivity extends Activity {
 	private static final String TAG = "TripTracker/Main";
@@ -184,24 +185,6 @@ public class MainActivity extends Activity {
 	}
 
 	@Override
-	protected void onActivityResult(int requestCode, int resultCode, Intent data) {
-		if (requestCode == LOGIN_REQUEST) {
-			if(resultCode == RESULT_OK){
-				Prefs.putUserId(MainActivity.this, data.getStringExtra("uid"));
-				Prefs.putUserEmail(MainActivity.this, data.getStringExtra("email"));
-				Prefs.putUserPassword(MainActivity.this, data.getStringExtra("password"));
-
-				enabler.performClick();
-			}
-			if (resultCode == RESULT_CANCELED) {
-				if(!TrackerService.isRunning()) {
-					enabler.setChecked(false);
-				}
-			}
-		}
-	}
-
-	@Override
 	public boolean onCreateOptionsMenu(Menu menu) {
 		MenuInflater menuInflater = getMenuInflater();
 		menuInflater.inflate(R.menu.main, menu);
@@ -235,6 +218,24 @@ public class MainActivity extends Activity {
 			doUnbindService();
 		}
 		catch (Throwable e) {
+			Log.e(TAG, e.getMessage());
+		}
+	}
+
+	@Override
+	protected void onActivityResult(int requestCode, int resultCode, Intent data) {
+		if (requestCode == LOGIN_REQUEST) {
+			if(resultCode == RESULT_OK){
+				Prefs.putUserId(MainActivity.this, data.getStringExtra("uid"));
+				Prefs.putUserEmail(MainActivity.this, data.getStringExtra("email"));
+				Prefs.putUserPassword(MainActivity.this, data.getStringExtra("password"));
+
+				enabler.performClick();
+			} else if (resultCode == RESULT_CANCELED) {
+				if(!TrackerService.isRunning()) {
+					enabler.setChecked(false);
+				}
+			}
 		}
 	}
 
@@ -244,7 +245,7 @@ public class MainActivity extends Activity {
 
 	public void logText(String text, Date date) {
 		/* DateFormat.SHORT doesn't honor 24 hour time :( */
-		String now = (new SimpleDateFormat("HH:mm:ss")).format(date);
+		String now = (new SimpleDateFormat("HH:mm:ss", Locale.US)).format(date);
 
 		TextView log = (TextView)findViewById(R.id.main_log);
 		log.append("[" + now + "] " + text + "\n");
@@ -257,8 +258,6 @@ public class MainActivity extends Activity {
 		scroller.post(new Runnable() {            
 			@Override
 			public void run() {
-				/* TODO: if log is scrolled up by the user, don't scroll it
-				 * down until they do */
 				scroller.fullScroll(View.FOCUS_DOWN);
 			}
 		});
@@ -273,6 +272,7 @@ public class MainActivity extends Activity {
 				break;
 
 			case TrackerService.MSG_LOG_RING:
+
 				ArrayList<LogMessage> logs = (ArrayList)msg.obj;
 
 				for (int i = 0; i < logs.size(); i++) {
@@ -299,26 +299,26 @@ public class MainActivity extends Activity {
 				mService.send(msg);
 			}
 			catch (RemoteException e) {
-				logText("error connecting to service: " + e.getMessage());
+				logText("Error connecting to service: " + e.getMessage());
 			}
 		}
 
 		public void onServiceDisconnected(ComponentName className) {
 			mService = null;
-			logText("disconnected from service :(");
+			logText("Disconnected from service");
 		}
 	};
 
-	void doBindService() {
+	private void doBindService() {
 		bindService(new Intent(this, TrackerService.class), mConnection,
 			Context.BIND_AUTO_CREATE);
 		mIsBound = true;
 	}
 
-	void doUnbindService() {
-		if (!mIsBound)
+	private void doUnbindService() {
+		if (!mIsBound) {
 			return;
-
+		}
 		if (mService != null) {
 			try {
 				Message msg = Message.obtain(null,
@@ -327,12 +327,11 @@ public class MainActivity extends Activity {
 				mService.send(msg);
 			}
 			catch (RemoteException e) {
+				Log.e(TAG, e.getMessage());
 			}
 		}
-
 		unbindService(mConnection);
 		mIsBound = false;
-
-		logText("service stopped");
+		logText("Service stopped");
 	}
 }

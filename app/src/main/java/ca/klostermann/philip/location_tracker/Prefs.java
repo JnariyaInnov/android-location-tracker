@@ -4,8 +4,6 @@ import android.content.Context;
 import android.content.SharedPreferences;
 
 public final class Prefs {
-	private static final String TAG = "Prefs";
-
 	public static String ENDPOINT = "endpoint";
 	public static String ENABLED = "enabled";
 	public static String UPDATE_FREQ = "update_freq";
@@ -35,7 +33,7 @@ public final class Prefs {
 		SharedPreferences.Editor editor = prefs.edit();
 
 		editor.putString(pref, val);
-		editor.commit();
+		editor.apply();
 	}
 
 	public static String getEndpoint(final Context context) {

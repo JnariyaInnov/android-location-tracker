@@ -4,6 +4,6 @@ import com.firebase.client.FirebaseError;
 import java.util.Map;
 
 public interface SignupTaskCaller {
-    public abstract void onSignupSuccess(Map<String, Object> result);
-    public abstract void onSignupFailure(FirebaseError firebaseError);
+    void onSignupSuccess(Map<String, Object> result);
+    void onSignupFailure(FirebaseError firebaseError);
 }

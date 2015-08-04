@@ -1,6 +1,5 @@
 package ca.klostermann.philip.location_tracker;
 
-import android.os.AsyncTask;
 import android.util.Log;
 
 import com.firebase.client.Firebase;

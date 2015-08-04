@@ -1,7 +1,7 @@
 package ca.klostermann.philip.location_tracker;
 
-
 import android.util.Log;
+
 import com.firebase.client.AuthData;
 import com.firebase.client.Firebase;
 import com.firebase.client.FirebaseError;

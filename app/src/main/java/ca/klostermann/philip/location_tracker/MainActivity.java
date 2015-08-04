@@ -51,9 +51,6 @@ public class MainActivity extends Activity {
 		setContentView(R.layout.main);
 
 		Firebase.setAndroidContext(this);
-		if(!Firebase.getDefaultConfig().isPersistenceEnabled()) {
-			Firebase.getDefaultConfig().setPersistenceEnabled(true);
-		}
 
 		/* load saved endpoint */
 		final EditText endpoint = (EditText)findViewById(R.id.main_endpoint);

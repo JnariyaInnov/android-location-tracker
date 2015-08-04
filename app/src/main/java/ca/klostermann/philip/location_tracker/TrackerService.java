@@ -119,6 +119,9 @@ public class TrackerService extends Service {
 		}
 
 		Firebase.setAndroidContext(this);
+		if(!Firebase.getDefaultConfig().isPersistenceEnabled()) {
+			Firebase.getDefaultConfig().setPersistenceEnabled(true);
+		}
 
 		// Authenticate user
 		String email = Prefs.getUserEmail(this);
@@ -270,7 +273,6 @@ public class TrackerService extends Service {
 		Log.d(TAG, "Location update received");
 		if(location == null) {
 			Log.d(TAG, "Location has not changed");
-			logText("Location has not changed");
 			return;
 		}
 

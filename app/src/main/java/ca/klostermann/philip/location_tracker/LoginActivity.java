@@ -158,7 +158,7 @@ public class LoginActivity extends Activity implements
             firebaseError = new FirebaseError(
                     FirebaseError.OPERATION_FAILED, "Firebase Auth completely failed.");
         }
-        Log.e(TAG, "AUTHENTICATION FAILED: " + firebaseError.getMessage());
+        Log.d(TAG, "authentication failed: " + firebaseError.getMessage());
         showProgress(false);
         handleFirebaseError(firebaseError);
     }
@@ -191,7 +191,7 @@ public class LoginActivity extends Activity implements
             firebaseError = new FirebaseError(
                     FirebaseError.OPERATION_FAILED, "Firebase Signup completely failed.");
         }
-        Log.w(TAG, "Creating new Account failed: " + firebaseError.toString());
+        Log.d(TAG, "Creating new Account failed: " + firebaseError.toString());
         showProgress(false);
         handleFirebaseError(firebaseError);
     }

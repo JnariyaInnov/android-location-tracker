@@ -15,6 +15,7 @@ import android.app.Service;
 import android.location.Location;
 import android.content.Context;
 import android.content.Intent;
+import android.os.Build;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.IBinder;
@@ -139,7 +140,8 @@ public class TrackerService extends Service {
 			public void onAuthenticated(AuthData authData) {
 				logText("Successfully authenticated");
 				mUserId = authData.getUid();
-				mFirebaseRef = mFirebaseRef.child(mUserId + "/devices/" + getDeviceId() + "/locations/");
+				mFirebaseRef = mFirebaseRef.child(mUserId + "/devices/" + getDeviceId());
+				mFirebaseRef.child("deviceInfo").setValue(getDeviceInfo());
 
 				// mGoogleApiClient.connect() will callback to this
 				mLocationListener = new LocationListener();
@@ -204,10 +206,6 @@ public class TrackerService extends Service {
 				.setPriority(LocationRequest.PRIORITY_HIGH_ACCURACY);
 	}
 
-	private String getDeviceId() {
-		return  Settings.Secure.getString(this.getContentResolver(), Settings.Secure.ANDROID_ID);
-	}
-
 	private void showNotification() {
 		nm = (NotificationManager)getSystemService(NOTIFICATION_SERVICE);
 		notification = new Notification(R.mipmap.service_icon,
@@ -229,6 +227,24 @@ public class TrackerService extends Service {
 			notification.when = System.currentTimeMillis();
 			nm.notify(1, notification);
 		}
+	}
+
+	private String getDeviceId() {
+		return  Settings.Secure.getString(this.getContentResolver(), Settings.Secure.ANDROID_ID);
+	}
+
+	private Map<String, String> getDeviceInfo() {
+		Map<String, String> info = new HashMap<>();
+		info.put("deviceId", getDeviceId());
+		info.put("brand", Build.BRAND);
+		info.put("device", Build.DEVICE);
+		info.put("hardware", Build.HARDWARE);
+		info.put("id", Build.ID);
+		info.put("manufacturer", Build.MANUFACTURER);
+		info.put("model", Build.MODEL);
+		info.put("product", Build.PRODUCT);
+
+		return info;
 	}
 
 	public void logText(String log) {
@@ -291,7 +307,7 @@ public class TrackerService extends Service {
 				(new DecimalFormat("#.######").format(location.getLongitude())));
 
 		try {
-			mFirebaseRef.push().setValue(postMap);
+			mFirebaseRef.child("locations").push().setValue(postMap);
 		} catch(Exception e) {
 			Log.e(TAG, "Posting to Firebase failed: " + e.toString());
 			logText("Failed to send location data.");

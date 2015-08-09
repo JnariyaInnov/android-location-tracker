@@ -27,7 +27,7 @@ import com.firebase.client.FirebaseError;
 import java.util.Map;
 
 public class LoginActivity extends Activity implements
-        LoginTaskCaller, SignupTaskCaller {
+        LoginTaskListener, SignupTaskListener {
 
     private static final String TAG = "LocationTracker/Login";
 

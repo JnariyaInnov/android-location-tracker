@@ -10,7 +10,7 @@ import java.util.Map;
 public class UserSignupTask {
     private final String TAG = "UserSignupTask";
 
-    private final SignupTaskCaller mCaller;
+    private final SignupTaskListener mCaller;
     private final String mFirebaseUrl;
     private final String mEmail;
     private final String mPassword;
@@ -18,7 +18,7 @@ public class UserSignupTask {
     private FirebaseError mError;
     private Map<String, Object> mResult;
 
-    UserSignupTask(SignupTaskCaller caller, String firebaseURL, String email, String password) {
+    UserSignupTask(SignupTaskListener caller, String firebaseURL, String email, String password) {
         mCaller = caller;
         mFirebaseUrl = firebaseURL;
         mEmail = email;

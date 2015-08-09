@@ -3,7 +3,7 @@ package ca.klostermann.philip.location_tracker;
 import com.firebase.client.FirebaseError;
 import java.util.Map;
 
-public interface SignupTaskCaller {
+public interface SignupTaskListener {
     void onSignupSuccess(Map<String, Object> result);
     void onSignupFailure(FirebaseError firebaseError);
 }

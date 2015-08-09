@@ -8,7 +8,7 @@ import com.firebase.client.FirebaseError;
 
 public class UserLoginTask {
     private final String TAG = "UserLoginTask";
-    private final LoginTaskCaller mCaller;
+    private final LoginTaskListener mCaller;
     private final String mFirebaseUrl;
     private final String mEmail;
     private final String mPassword;
@@ -16,7 +16,7 @@ public class UserLoginTask {
     private FirebaseError mError;
     private AuthData mAuthData;
 
-    public UserLoginTask(LoginTaskCaller caller, String firebaseURL, String email, String password) {
+    public UserLoginTask(LoginTaskListener caller, String firebaseURL, String email, String password) {
         mCaller = caller;
         mFirebaseUrl = firebaseURL;
         mEmail = email;
@@ -50,7 +50,6 @@ public class UserLoginTask {
     }
 
     protected void onComplete(final Boolean success) {
-
         if (success && mAuthData != null) {
             mCaller.onLoginSuccess(mAuthData);
         } else if (!success && mError != null) {

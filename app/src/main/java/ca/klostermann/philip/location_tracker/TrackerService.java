@@ -2,7 +2,9 @@ package ca.klostermann.philip.location_tracker;
 
 import java.text.DecimalFormat;
 import java.util.ArrayList;
+import java.util.Calendar;
 import java.util.Date;
+import java.util.GregorianCalendar;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.regex.Pattern;
@@ -140,8 +142,9 @@ public class TrackerService extends Service {
 			public void onAuthenticated(AuthData authData) {
 				logText("Successfully authenticated");
 				mUserId = authData.getUid();
-				mFirebaseRef = mFirebaseRef.child(mUserId + "/devices/" + getDeviceId());
-				mFirebaseRef.child("deviceInfo").setValue(getDeviceInfo());
+
+				// set this device's info in Firebase
+				mFirebaseRef.child("devices/" + mUserId + "/" + getDeviceId()).setValue(getDeviceInfo());
 
 				// mGoogleApiClient.connect() will callback to this
 				mLocationListener = new LocationListener();
@@ -301,13 +304,26 @@ public class TrackerService extends Service {
 		postMap.put("accuracy", String.valueOf(location.getAccuracy()));
 		postMap.put("provider", String.valueOf(location.getProvider()));
 
+		//Use timestamp of today's date at midnight as key
+		GregorianCalendar d = new GregorianCalendar();
+		d.setTimeInMillis(location.getTime());
+		d.set(Calendar.HOUR, 0);
+		d.set(Calendar.HOUR_OF_DAY, 0);
+		d.set(Calendar.MINUTE, 0);
+		d.set(Calendar.SECOND, 0);
+		d.set(Calendar.MILLISECOND, 0);
+		String dateKey = String.valueOf(d.getTimeInMillis());
+
 		logText("Location " +
 				(new DecimalFormat("#.######").format(location.getLatitude())) +
 				", " +
 				(new DecimalFormat("#.######").format(location.getLongitude())));
 
 		try {
-			mFirebaseRef.child("locations").push().setValue(postMap);
+			mFirebaseRef
+					.child("locations/" + mUserId + "/" + getDeviceId() + "/" + dateKey)
+					.push()
+					.setValue(postMap);
 		} catch(Exception e) {
 			Log.e(TAG, "Posting to Firebase failed: " + e.toString());
 			logText("Failed to send location data.");

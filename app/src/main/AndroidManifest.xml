@@ -31,6 +31,7 @@
             android:name=".LocationReceiver"
             android:enabled="true" />
 
+        <!-- login activity -->
         <activity
             android:name=".LoginActivity"
             android:label="@string/title_activity_login"

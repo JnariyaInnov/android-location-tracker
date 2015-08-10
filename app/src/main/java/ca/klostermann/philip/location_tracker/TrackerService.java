@@ -13,6 +13,7 @@ import java.util.Collections;
 import java.util.Date;
 import java.util.GregorianCalendar;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.regex.Pattern;
 import java.util.regex.Matcher;
@@ -82,7 +83,7 @@ public class TrackerService extends Service {
 	static final int MSG_LOG_RING = 4;
 
 	static final String LOGFILE_NAME = "TrackerService.log";
-	static final int MAX_RING_SIZE = 50;
+	static final int MAX_RING_SIZE = 250;
 
 	@Override
 	public IBinder onBind(Intent intent) {
@@ -137,10 +138,19 @@ public class TrackerService extends Service {
 		}
 
 		// load saved log messages from disk
-		ArrayList<LogMessage> logs = loadLogsFromDisk(MAX_RING_SIZE);
+		ArrayList<LogMessage> logs = loadLogsFromDisk();
 		if(logs != null) {
-			mLogRing.addAll(logs);
 			Log.d(TAG, "Loaded " + logs.size() + " logs from disk");
+
+			if(logs.size() > MAX_RING_SIZE) {
+				mLogRing.addAll(logs.subList(logs.size() - MAX_RING_SIZE, logs.size() - 1));
+			} else {
+				mLogRing.addAll(logs);
+			}
+
+			if(logs.size() > (2 * MAX_RING_SIZE)) {
+				cleanLogFile(MAX_RING_SIZE);
+			}
 		}
 
 		Firebase.setAndroidContext(this);
@@ -290,10 +300,11 @@ public class TrackerService extends Service {
 			Log.e(TAG, "Saving Log to disk failed, IO Exception: " + e);
 			return false;
 		}
+
 		return true;
 	}
 
-	private ArrayList<LogMessage> loadLogsFromDisk(int numMessages) {
+	private ArrayList<LogMessage> loadLogsFromDisk() {
 		ArrayList<LogMessage> logs = new ArrayList<>();
 
 		ArrayList<String> jsonLogMessages = new ArrayList<>();
@@ -326,10 +337,6 @@ public class TrackerService extends Service {
 				d.setTime(jsonObject.getLong("date"));
 				LogMessage lm = new LogMessage(d, jsonObject.getString("message"));
 				logs.add(lm);
-
-				if(jsonLogMessages.size() - i >= numMessages) {
-					break;
-				}
 			}
 		} catch (JSONException e) {
 			Log.e(TAG, "Reading logs from disk failed, unable to parse JSON object: " + e);
@@ -338,6 +345,28 @@ public class TrackerService extends Service {
 
 		Collections.reverse(logs);
 		return logs;
+	}
+
+	private boolean cleanLogFile(int numLogsToKeep) {
+		ArrayList<LogMessage> logs = loadLogsFromDisk();
+		if(logs == null || logs.size() <= 0) {
+			Log.e(TAG, "Cleaning log failed, unable to load log file.");
+			return false;
+		}
+		if(!deleteFile(LOGFILE_NAME)) {
+			Log.e(TAG, "Cleaning log failed, unable to delete log file.");
+			return false;
+		}
+
+		List<LogMessage> recentLogs = logs.subList(logs.size() - numLogsToKeep - 1, logs.size() - 1);
+
+		for(int i = 0; i < recentLogs.size(); i++) {
+			if(!saveLogToDisk(recentLogs.get(i))) {
+				Log.e(TAG, "Cleaning log failed, error trying to write to new log file");
+				return false;
+			}
+		}
+		return true;
 	}
 
 	public void logText(String log) {

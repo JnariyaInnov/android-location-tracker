@@ -1,8 +1,15 @@
 package ca.klostermann.philip.location_tracker;
 
+import java.io.BufferedReader;
+import java.io.FileNotFoundException;
+import java.io.IOException;
+import java.io.InputStream;
+import java.io.InputStreamReader;
+import java.io.OutputStreamWriter;
 import java.text.DecimalFormat;
 import java.util.ArrayList;
 import java.util.Calendar;
+import java.util.Collections;
 import java.util.Date;
 import java.util.GregorianCalendar;
 import java.util.HashMap;
@@ -40,6 +47,9 @@ import com.google.android.gms.common.api.GoogleApiClient.OnConnectionFailedListe
 import com.google.android.gms.location.LocationRequest;
 import com.google.android.gms.location.LocationServices;
 
+import org.json.JSONException;
+import org.json.JSONObject;
+
 
 public class TrackerService extends Service {
 	private static final String TAG = "LocationTracker/Service";
@@ -70,6 +80,9 @@ public class TrackerService extends Service {
 	static final int MSG_UNREGISTER_CLIENT = 2;
 	static final int MSG_LOG = 3;
 	static final int MSG_LOG_RING = 4;
+
+	static final String LOGFILE_NAME = "TrackerService.log";
+	static final int MAX_RING_SIZE = 50;
 
 	@Override
 	public IBinder onBind(Intent intent) {
@@ -123,6 +136,13 @@ public class TrackerService extends Service {
 			return;
 		}
 
+		// load saved log messages from disk
+		ArrayList<LogMessage> logs = loadLogsFromDisk(MAX_RING_SIZE);
+		if(logs != null) {
+			mLogRing.addAll(logs);
+			Log.d(TAG, "Loaded " + logs.size() + " logs from disk");
+		}
+
 		Firebase.setAndroidContext(this);
 
 		// Authenticate user
@@ -164,7 +184,6 @@ public class TrackerService extends Service {
 			public void onAuthenticationError(FirebaseError firebaseError) {
 				logText("Authentication failed, please check email/password, stopping service");
 				stopSelf();
-				return;
 			}
 		});
 	}
@@ -250,10 +269,82 @@ public class TrackerService extends Service {
 		return info;
 	}
 
+	private boolean saveLogToDisk(LogMessage logMessage) {
+		JSONObject jsonObj = new JSONObject();
+		try {
+			jsonObj.put("date", String.valueOf(logMessage.date.getTime()));
+			jsonObj.put("message", logMessage.message);
+		} catch (JSONException e) {
+			Log.e(TAG, "Saving Log to disk failed, cannot create JSON object: " + e);
+			return false;
+		}
+
+		OutputStreamWriter osw;
+		try {
+			osw = new OutputStreamWriter(openFileOutput(LOGFILE_NAME, Context.MODE_APPEND));
+			osw.write(jsonObj.toString() + "\n");
+			osw.close();
+		} catch (FileNotFoundException e) {
+			Log.e(TAG, "Saving Log to disk failed, file not found: " + e);
+			return false;
+		} catch (IOException e) {
+			Log.e(TAG, "Saving Log to disk failed, IO Exception: " + e);
+			return false;
+		}
+		return true;
+	}
+
+	private ArrayList<LogMessage> loadLogsFromDisk(int numMessages) {
+		ArrayList<LogMessage> logs = new ArrayList<>();
+
+		ArrayList<String> jsonLogMessages = new ArrayList<>();
+		InputStream inputStream;
+		try {
+			inputStream = openFileInput(LOGFILE_NAME);
+
+			if ( inputStream != null ) {
+				InputStreamReader inputStreamReader = new InputStreamReader(inputStream);
+				BufferedReader bufferedReader = new BufferedReader(inputStreamReader);
+
+				String line;
+				while ((line = bufferedReader.readLine()) != null ) {
+					jsonLogMessages.add(line);
+				}
+				inputStream.close();
+			}
+		} catch (FileNotFoundException e) {
+			Log.e(TAG, "Reading Logs from disk failed, file not found: " + e);
+			return null;
+		} catch (IOException e) {
+			Log.e(TAG, "Reading Logs from disk failed, IO Exception: " + e);
+			return null;
+		}
+
+		try {
+			for(int i = jsonLogMessages.size() - 1; i >= 0; i--) {
+				JSONObject jsonObject = new JSONObject(jsonLogMessages.get(i));
+				Date d = new Date();
+				d.setTime(jsonObject.getLong("date"));
+				LogMessage lm = new LogMessage(d, jsonObject.getString("message"));
+				logs.add(lm);
+
+				if(jsonLogMessages.size() - i >= numMessages) {
+					break;
+				}
+			}
+		} catch (JSONException e) {
+			Log.e(TAG, "Reading logs from disk failed, unable to parse JSON object: " + e);
+			return null;
+		}
+
+		Collections.reverse(logs);
+		return logs;
+	}
+
 	public void logText(String log) {
 		LogMessage lm = new LogMessage(new Date(), log);
 		mLogRing.add(lm);
-		int MAX_RING_SIZE = 15;
+		saveLogToDisk(lm);
 		if (mLogRing.size() > MAX_RING_SIZE)
 			mLogRing.remove(0);
 

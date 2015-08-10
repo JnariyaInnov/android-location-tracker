@@ -229,7 +229,6 @@ public class MainActivity extends Activity {
 				Prefs.putUserId(MainActivity.this, data.getStringExtra("uid"));
 				Prefs.putUserEmail(MainActivity.this, data.getStringExtra("email"));
 				Prefs.putUserPassword(MainActivity.this, data.getStringExtra("password"));
-
 				enabler.performClick();
 			} else if (resultCode == RESULT_CANCELED) {
 				if(!TrackerService.isRunning()) {
@@ -272,6 +271,8 @@ public class MainActivity extends Activity {
 				break;
 
 			case TrackerService.MSG_LOG_RING:
+				TextView log = (TextView)findViewById(R.id.main_log);
+				log.setText("");
 
 				ArrayList<LogMessage> logs = (ArrayList)msg.obj;
 

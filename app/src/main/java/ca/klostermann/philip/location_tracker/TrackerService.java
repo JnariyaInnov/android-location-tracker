@@ -155,6 +155,9 @@ public class TrackerService extends Service {
 			return;
 		}
 
+		showNotification();
+		isRunning = true;
+
 		logText("Service authenticating...");
 		mFirebaseRef = new Firebase(Prefs.getEndpoint(this));
 		mFirebaseRef.authWithPassword(email, password, new Firebase.AuthResultHandler() {
@@ -170,10 +173,6 @@ public class TrackerService extends Service {
 				mLocationListener = new LocationListener();
 				mGoogleApiClient = buildGoogleApiClient();
 				mGoogleApiClient.connect();
-
-				showNotification();
-
-				isRunning = true;
 
 				/* we're not registered yet, so this will just log to our ring buffer,
 	 			* but as soon as the client connects we send the log buffer anyway */

@@ -72,6 +72,7 @@ public class TrackerService extends Service {
 	private LocationListener mLocationListener;
 	private Firebase mFirebaseRef;
 	private String mUserId;
+	private Location mLastReportedLocation;
 
 	ArrayList<LogMessage> mLogRing = new ArrayList<>();
 	ArrayList<Messenger> mClients = new ArrayList<>();
@@ -405,14 +406,24 @@ public class TrackerService extends Service {
 			wakeLock.setReferenceCounted(true);
 		}
 
-		if (!wakeLock.isHeld())
+		if (!wakeLock.isHeld()) {
 			wakeLock.acquire();
+		}
 
-		Log.d(TAG, "Location update received");
 		if(location == null) {
-			Log.d(TAG, "Location has not changed");
 			return;
 		}
+
+		Log.d(TAG, "Location update received");
+
+		if(mLastReportedLocation != null) {
+			float accuracy = Math.max(location.getAccuracy(), mLastReportedLocation.getAccuracy());
+			if(mLastReportedLocation.distanceTo(location) < accuracy) {
+				Log.d(TAG, "Location has not changed enough. Not sending...");
+				return;
+			}
+		}
+
 
 		Map<String,String> postMap = new HashMap<>();
 		postMap.put("time", String.valueOf(location.getTime()));
@@ -439,10 +450,10 @@ public class TrackerService extends Service {
 				(new DecimalFormat("#.######").format(location.getLongitude())));
 
 		try {
-			mFirebaseRef
-					.child("locations/" + mUserId + "/" + getDeviceId() + "/" + dateKey)
+			mFirebaseRef.child("locations/" + mUserId + "/" + getDeviceId() + "/" + dateKey)
 					.push()
 					.setValue(postMap);
+			mLastReportedLocation = location;
 		} catch(Exception e) {
 			Log.e(TAG, "Posting to Firebase failed: " + e.toString());
 			logText("Failed to send location data.");

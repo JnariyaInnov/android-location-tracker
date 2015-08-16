@@ -8,10 +8,8 @@ import java.io.InputStreamReader;
 import java.io.OutputStreamWriter;
 import java.text.DecimalFormat;
 import java.util.ArrayList;
-import java.util.Calendar;
 import java.util.Collections;
 import java.util.Date;
-import java.util.GregorianCalendar;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -428,16 +426,20 @@ public class TrackerService extends Service {
 		//Use timestamp of today's date at midnight as key
 		long dateKey = LocationPost.getDateKey(locationPost.getTime());
 
-		logText("Location " +
-				(new DecimalFormat("#.######").format(locationPost.getLatitude())) +
-				", " +
-				(new DecimalFormat("#.######").format(locationPost.getLongitude())));
-
 		try {
 			mFirebaseRef.child("locations/" + mUserId + "/" + getDeviceId() + "/" + dateKey)
 					.push()
 					.setValue(locationPost);
+
 			mLastReportedLocation = location;
+
+			Log.d(TAG, "Location sent");
+			logText("Location " +
+					(new DecimalFormat("#.######").format(locationPost.getLatitude())) +
+					", " +
+					(new DecimalFormat("#.######").format(locationPost.getLongitude())));
+
+
 		} catch(Exception e) {
 			Log.e(TAG, "Posting to Firebase failed: " + e.toString());
 			logText("Failed to send location data.");

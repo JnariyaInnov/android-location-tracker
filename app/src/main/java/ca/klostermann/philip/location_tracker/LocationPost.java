@@ -12,7 +12,6 @@ public class LocationPost {
     private float speed;
     private double altitude;
     private float accuracy;
-    private String provider;
 
     public LocationPost() {}
 
@@ -23,7 +22,6 @@ public class LocationPost {
         this.speed = location.getSpeed();
         this.altitude = location.getAltitude();
         this.accuracy = location.getAccuracy();
-        this.provider = location.getProvider();
     }
 
     public static long getDateKey(long time) {
@@ -86,14 +84,6 @@ public class LocationPost {
         this.accuracy = accuracy;
     }
 
-    public String getProvider() {
-        return provider;
-    }
-
-    public void setProvider(String provider) {
-        this.provider = provider;
-    }
-
     @Override
     public String toString() {
         return "LocationPost{" +
@@ -103,7 +93,6 @@ public class LocationPost {
                 ", speed=" + speed +
                 ", altitude=" + altitude +
                 ", accuracy=" + accuracy +
-                ", provider='" + provider + '\'' +
                 '}';
     }
 }

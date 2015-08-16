@@ -424,35 +424,19 @@ public class TrackerService extends Service {
 			}
 		}
 
-
-		Map<String,String> postMap = new HashMap<>();
-		postMap.put("time", String.valueOf(location.getTime()));
-		postMap.put("latitude", String.valueOf(location.getLatitude()));
-		postMap.put("longitude", String.valueOf(location.getLongitude()));
-		postMap.put("speed", String.valueOf(location.getSpeed()));
-		postMap.put("altitude", String.valueOf(location.getAltitude()));
-		postMap.put("accuracy", String.valueOf(location.getAccuracy()));
-		postMap.put("provider", String.valueOf(location.getProvider()));
-
+		LocationPost locationPost = new LocationPost(location);
 		//Use timestamp of today's date at midnight as key
-		GregorianCalendar d = new GregorianCalendar();
-		d.setTimeInMillis(location.getTime());
-		d.set(Calendar.HOUR, 0);
-		d.set(Calendar.HOUR_OF_DAY, 0);
-		d.set(Calendar.MINUTE, 0);
-		d.set(Calendar.SECOND, 0);
-		d.set(Calendar.MILLISECOND, 0);
-		String dateKey = String.valueOf(d.getTimeInMillis());
+		long dateKey = LocationPost.getDateKey(locationPost.getTime());
 
 		logText("Location " +
-				(new DecimalFormat("#.######").format(location.getLatitude())) +
+				(new DecimalFormat("#.######").format(locationPost.getLatitude())) +
 				", " +
-				(new DecimalFormat("#.######").format(location.getLongitude())));
+				(new DecimalFormat("#.######").format(locationPost.getLongitude())));
 
 		try {
 			mFirebaseRef.child("locations/" + mUserId + "/" + getDeviceId() + "/" + dateKey)
 					.push()
-					.setValue(postMap);
+					.setValue(locationPost);
 			mLastReportedLocation = location;
 		} catch(Exception e) {
 			Log.e(TAG, "Posting to Firebase failed: " + e.toString());
